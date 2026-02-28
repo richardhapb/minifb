@@ -77,6 +77,31 @@ update_events() {
 }
 
 //-------------------------------------
+// Blocking wait for events - CPU efficient idle
+static inline void
+wait_for_events() {
+    NSEvent* event;
+
+    @autoreleasepool {
+        // Block until an event arrives
+        event = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                   untilDate:[NSDate distantFuture]
+                                      inMode:NSDefaultRunLoopMode
+                                     dequeue:YES];
+        if (event) {
+            [NSApp sendEvent:event];
+        }
+        // Process any remaining events
+        while ((event = [NSApp nextEventMatchingMask:NSEventMaskAny
+                                        untilDate:[NSDate distantPast]
+                                            inMode:NSDefaultRunLoopMode
+                                            dequeue:YES])) {
+            [NSApp sendEvent:event];
+        }
+    }
+}
+
+//-------------------------------------
 struct mfb_window *
 mfb_open_ex(const char *title, unsigned width, unsigned height, unsigned flags) {
     @autoreleasepool {
@@ -147,6 +172,14 @@ mfb_open_ex(const char *title, unsigned width, unsigned height, unsigned flags) 
         view.device   = window_data_specific->viewController->metal_device;
         view.delegate = window_data_specific->viewController;
         view.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+
+        // Render on demand only - 0% CPU when idle
+        view.paused = YES;
+        view.enableSetNeedsDisplay = YES;
+
+        // Store reference for setNeedsDisplay calls
+        window_data_specific->view = view;
+
         [window_data_specific->window.contentView addSubview:view];
 
         //[window_data->window updateSize];
@@ -231,8 +264,13 @@ mfb_update_ex(struct mfb_window *window, void *buffer, unsigned width, unsigned 
         return STATE_EXIT;
     }
 
+#if defined(USE_METAL_API)
+    // Tell the MTKView to redraw
+    [window_data_specific->view setNeedsDisplay:YES];
+#else
     // Ask the internal/root content view (the one that implements drawRect:) to update.
     [[window_data_specific->window rootContentView] setNeedsDisplay:YES];
+#endif
 
     return STATE_OK;
 }
@@ -256,8 +294,35 @@ mfb_update_events(struct mfb_window *window) {
     }
 
     SWindowData_OSX *window_data_specific = (SWindowData_OSX *) window_data->specific;
+#if defined(USE_METAL_API)
+    // Tell the MTKView to redraw
+    [window_data_specific->view setNeedsDisplay:YES];
+#else
     // Ask the internal/root content view (the one that implements drawRect:) to update.
     [[window_data_specific->window rootContentView] setNeedsDisplay:YES];
+#endif
+
+    return STATE_OK;
+}
+
+//-------------------------------------
+// Blocking wait for events - 0% CPU when idle
+mfb_update_state
+mfb_wait_events(struct mfb_window *window) {
+    SWindowData *window_data = (SWindowData *) window;
+    if (window_data == NULL) {
+        return STATE_INVALID_WINDOW;
+    }
+    if (window_data->close) {
+        destroy_window_data(window_data);
+        return STATE_EXIT;
+    }
+
+    wait_for_events();
+    if (window_data->close) {
+        destroy_window_data(window_data);
+        return STATE_EXIT;
+    }
 
     return STATE_OK;
 }

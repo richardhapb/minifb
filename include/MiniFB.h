@@ -64,8 +64,11 @@ mfb_update_state    mfb_update(struct mfb_window *window, void *buffer);
 
 mfb_update_state    mfb_update_ex(struct mfb_window *window, void *buffer, unsigned width, unsigned height);
 
-// Only updates the window events
+// Only updates the window events (non-blocking poll)
 mfb_update_state    mfb_update_events(struct mfb_window *window);
+
+// Blocking wait for events - 0% CPU when idle
+mfb_update_state    mfb_wait_events(struct mfb_window *window);
 
 // Close the window
 void                mfb_close(struct mfb_window *window);

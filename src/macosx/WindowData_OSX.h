@@ -20,6 +20,7 @@ typedef struct {
     struct mfb_timer    *timer;
 
 #if defined(USE_METAL_API)
+    MTKView             *view;
     struct {
         Vertex          vertices[4];
     } metal;
