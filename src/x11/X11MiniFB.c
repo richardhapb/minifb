@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <time.h>
 #include <unistd.h>
 #include <poll.h>
@@ -525,6 +526,52 @@ mfb_update_events(struct mfb_window *window) {
 
     Display *display = window_data_specific->display;
     XFlush(display);
+
+    update_events(window_data, display);
+    if (window_data->close) {
+        destroy_window_data(window_data);
+        return STATE_EXIT;
+    }
+
+    return STATE_OK;
+}
+
+//-------------------------------------
+mfb_update_state
+mfb_wait_events(struct mfb_window *window) {
+    SWindowData *window_data = (SWindowData *) window;
+    if (window_data == NULL) {
+        return STATE_INVALID_WINDOW;
+    }
+
+    if (window_data->close) {
+        destroy_window_data(window_data);
+        return STATE_EXIT;
+    }
+
+    SWindowData_X11 *window_data_specific = (SWindowData_X11 *) window_data->specific;
+    if (window_data_specific == NULL) {
+        return STATE_INVALID_WINDOW;
+    }
+
+    Display *display = window_data_specific->display;
+    const int fd = ConnectionNumber(display);
+
+    XFlush(display);
+
+    while (XPending(display) == 0) {
+        struct pollfd pfd;
+        pfd.fd = fd;
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+
+        if (poll(&pfd, 1, -1) < 0) {
+            if (errno == EINTR) {
+                continue;
+            }
+            return STATE_INTERNAL_ERROR;
+        }
+    }
 
     update_events(window_data, display);
     if (window_data->close) {
